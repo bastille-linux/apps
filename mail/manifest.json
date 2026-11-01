@@ -1,0 +1,7 @@
+{
+  "id": "com.bastille.mail",
+  "name": "umail",
+  "description": "Bastille mail app",
+  "version": "0.1.0",
+  "deps": ["python3-gi", "gir1.2-gtk-4.0", "gir1.2-adw-1"]
+}
