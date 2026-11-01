@@ -1,7 +1,8 @@
 {
   "id": "com.bastille.notes",
-  "name": "unotes",
-  "description": "Bastille notes app",
+  "name": "Notes",
+  "description": "Encrypted local notes with PIN lock and markdown",
   "version": "0.1.0",
-  "deps": ["python3-gi", "gir1.2-gtk-4.0", "gir1.2-adw-1"]
+  "exec": "main.py",
+  "deps": ["python3-gi","gir1.2-gtk-4.0","gir1.2-adw-1"]
 }

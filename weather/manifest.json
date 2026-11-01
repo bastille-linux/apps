@@ -1,0 +1,8 @@
+{
+  "id": "com.bastille.weather",
+  "name": "Weather",
+  "description": "Privacy-first weather via wttr.in",
+  "version": "0.1.0",
+  "exec": "main.py",
+  "deps": ["python3-gi","gir1.2-gtk-4.0","gir1.2-adw-1","gir1.2-soup-3.0"]
+}

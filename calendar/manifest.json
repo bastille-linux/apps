@@ -1,7 +1,8 @@
 {
   "id": "com.bastille.calendar",
-  "name": "ucalendar",
-  "description": "Bastille calendar app",
+  "name": "Calendar",
+  "description": "Offline calendar with event detection",
   "version": "0.1.0",
-  "deps": ["python3-gi", "gir1.2-gtk-4.0", "gir1.2-adw-1"]
+  "exec": "main.py",
+  "deps": ["python3-gi","gir1.2-gtk-4.0","gir1.2-adw-1"]
 }

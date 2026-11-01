@@ -1,7 +1,8 @@
 {
   "id": "com.bastille.music",
-  "name": "umusic",
-  "description": "Bastille music app",
+  "name": "Music",
+  "description": "Local music player",
   "version": "0.1.0",
-  "deps": ["python3-gi", "gir1.2-gtk-4.0", "gir1.2-adw-1"]
+  "exec": "main.py",
+  "deps": ["python3-gi","gir1.2-gtk-4.0","gir1.2-adw-1","gir1.2-gst-1.0","gstreamer1.0-plugins-good","python3-mutagen"]
 }
