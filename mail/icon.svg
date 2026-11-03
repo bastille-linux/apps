@@ -1,0 +1,15 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0e1c34"/>
+      <stop offset="100%" stop-color="#080c14"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect x="96" y="172" width="320" height="208" rx="16" fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.22)" stroke-width="2"/>
+  <polyline points="96,172 256,296 416,172" fill="none" stroke="rgba(255,255,255,.75)" stroke-width="2.5" stroke-linejoin="round"/>
+  <line x1="96" y1="380" x2="210" y2="280" stroke="rgba(255,255,255,.18)" stroke-width="2"/>
+  <line x1="416" y1="380" x2="302" y2="280" stroke="rgba(255,255,255,.18)" stroke-width="2"/>
+  <rect x="234" y="254" width="44" height="44" rx="6" fill="#2a78d6" transform="rotate(45 256 276)"/>
+  <text x="256" y="283" text-anchor="middle" font-family="monospace" font-size="22" font-weight="700" fill="white">P</text>
+</svg>

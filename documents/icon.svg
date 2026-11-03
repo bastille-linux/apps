@@ -1,0 +1,19 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e1508"/>
+      <stop offset="100%" stop-color="#0c0a04"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect x="174" y="138" width="200" height="256" rx="14" fill="rgba(0,0,0,.3)" transform="translate(6,6)"/>
+  <rect x="152" y="130" width="208" height="264" rx="14" fill="#f0eeea"/>
+  <path d="M 316,130 L 360,130 L 360,166 Z" fill="#d4d1cb"/>
+  <path d="M 316,130 L 316,166 L 360,166" fill="#e8e5e0"/>
+  <rect x="178" y="208" width="148" height="10" rx="5" fill="#b8b5ae"/>
+  <rect x="178" y="232" width="124" height="10" rx="5" fill="#b8b5ae"/>
+  <rect x="178" y="256" width="140" height="10" rx="5" fill="#b8b5ae"/>
+  <rect x="178" y="280" width="100" height="10" rx="5" fill="#b8b5ae"/>
+  <line x1="192" y1="330" x2="252" y2="362" stroke="#fab219" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="256" cy="364" r="8" fill="#fab219"/>
+</svg>
