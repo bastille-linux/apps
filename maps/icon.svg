@@ -1,11 +1,5 @@
 <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <radialGradient id="bg" cx="50%" cy="40%" r="70%">
-      <stop offset="0%" stop-color="#091809"/>
-      <stop offset="100%" stop-color="#040804"/>
-    </radialGradient>
-  </defs>
-  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="112" fill="#0b0b0b"/>
   <circle cx="256" cy="240" r="148" fill="none" stroke="rgba(0,147,0,.12)" stroke-width="1.5"/>
   <circle cx="256" cy="240" r="108" fill="none" stroke="rgba(0,147,0,.18)" stroke-width="1.5"/>
   <circle cx="256" cy="240" r="70" fill="none" stroke="rgba(0,147,0,.28)" stroke-width="2"/>

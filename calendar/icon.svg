@@ -1,16 +1,10 @@
 <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#101c2e"/>
-      <stop offset="100%" stop-color="#080c12"/>
-    </linearGradient>
-  </defs>
-  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="112" fill="#0b0b0b"/>
   <rect x="112" y="152" width="288" height="240" rx="20" fill="#121e30"/>
   <rect x="112" y="152" width="288" height="74" rx="20" fill="#2a78d6"/>
   <rect x="112" y="196" width="288" height="30" fill="#2a78d6"/>
-  <circle cx="192" cy="152" r="13" fill="#080c12"/>
-  <circle cx="320" cy="152" r="13" fill="#080c12"/>
+  <circle cx="192" cy="152" r="13" fill="#0b0b0b"/>
+  <circle cx="320" cy="152" r="13" fill="#0b0b0b"/>
   <rect x="136" y="248" width="52" height="42" rx="8" fill="rgba(255,255,255,.07)"/>
   <rect x="204" y="248" width="52" height="42" rx="8" fill="rgba(255,255,255,.07)"/>
   <rect x="272" y="248" width="52" height="42" rx="8" fill="rgba(255,255,255,.07)"/>

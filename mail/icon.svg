@@ -1,11 +1,5 @@
 <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0e1c34"/>
-      <stop offset="100%" stop-color="#080c14"/>
-    </linearGradient>
-  </defs>
-  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="112" fill="#0b0b0b"/>
   <rect x="96" y="172" width="320" height="208" rx="16" fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.22)" stroke-width="2"/>
   <polyline points="96,172 256,296 416,172" fill="none" stroke="rgba(255,255,255,.75)" stroke-width="2.5" stroke-linejoin="round"/>
   <line x1="96" y1="380" x2="210" y2="280" stroke="rgba(255,255,255,.18)" stroke-width="2"/>
