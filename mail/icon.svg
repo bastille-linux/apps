@@ -1,9 +1,9 @@
 <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
   <rect width="512" height="512" rx="112" fill="#0b0b0b"/>
-  <rect x="96" y="172" width="320" height="208" rx="16" fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.22)" stroke-width="2"/>
-  <polyline points="96,172 256,296 416,172" fill="none" stroke="rgba(255,255,255,.75)" stroke-width="2.5" stroke-linejoin="round"/>
-  <line x1="96" y1="380" x2="210" y2="280" stroke="rgba(255,255,255,.18)" stroke-width="2"/>
-  <line x1="416" y1="380" x2="302" y2="280" stroke="rgba(255,255,255,.18)" stroke-width="2"/>
-  <rect x="234" y="254" width="44" height="44" rx="6" fill="#2a78d6" transform="rotate(45 256 276)"/>
-  <text x="256" y="283" text-anchor="middle" font-family="monospace" font-size="22" font-weight="700" fill="white">P</text>
+  <rect x="88" y="152" width="336" height="224" rx="20" fill="#1c2438"/>
+  <path d="M 88,168 Q 88,152 108,152 L 404,152 Q 424,152 424,172 L 256,272 Z" fill="#243050"/>
+  <path d="M 88,172 L 256,272 L 424,172" fill="none" stroke="#2a78d6" stroke-width="3" opacity=".5"/>
+  <polygon points="256,282 272,268 284,280 284,310 228,310 228,280 240,268" fill="#2a78d6" opacity=".9"/>
+  <rect x="244" y="292" width="24" height="18" rx="3" fill="#1c2438"/>
+  <circle cx="256" cy="283" r="7" fill="#2a78d6" opacity=".9"/>
 </svg>

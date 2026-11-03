@@ -1,19 +1,11 @@
 <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
   <rect width="512" height="512" rx="112" fill="#0b0b0b"/>
-  <rect x="152" y="116" width="240" height="292" rx="14" fill="#f0eeea"/>
-  <circle cx="152" cy="160" r="14" fill="#0b0b0b" stroke="#fab219" stroke-width="3"/>
-  <circle cx="152" cy="208" r="14" fill="#0b0b0b" stroke="#fab219" stroke-width="3"/>
-  <circle cx="152" cy="256" r="14" fill="#0b0b0b" stroke="#fab219" stroke-width="3"/>
-  <circle cx="152" cy="304" r="14" fill="#0b0b0b" stroke="#fab219" stroke-width="3"/>
-  <circle cx="152" cy="352" r="14" fill="#0b0b0b" stroke="#fab219" stroke-width="3"/>
-  <rect x="186" y="180" width="168" height="10" rx="5" fill="#b8b5ae"/>
-  <rect x="186" y="208" width="148" height="10" rx="5" fill="#b8b5ae"/>
-  <rect x="186" y="236" width="160" height="10" rx="5" fill="#b8b5ae"/>
-  <rect x="186" y="272" width="168" height="1" rx="1" fill="#ddd9d0"/>
-  <circle cx="205" cy="298" r="9" fill="#fab219" opacity=".9"/>
-  <circle cx="232" cy="298" r="9" fill="#fab219" opacity=".9"/>
-  <circle cx="259" cy="298" r="9" fill="#fab219" opacity=".9"/>
-  <circle cx="286" cy="298" r="9" fill="#fab219" opacity=".9"/>
-  <rect x="315" y="285" width="28" height="22" rx="5" fill="#fab219"/>
-  <path d="M 322,285 L 322,277 Q 322,269 329,269 Q 336,269 336,277 L 336,285" fill="none" stroke="#fab219" stroke-width="4" stroke-linecap="round"/>
+  <g transform="rotate(-42 256 256)">
+    <rect x="236" y="150" width="40" height="28" rx="8" fill="#d03b3b"/>
+    <rect x="234" y="176" width="44" height="14" rx="2" fill="#9a8060"/>
+    <rect x="236" y="190" width="40" height="130" fill="#fab219"/>
+    <rect x="236" y="190" width="40" height="8" fill="rgba(255,200,80,.7)"/>
+    <path d="M 236,320 L 276,320 L 256,368 Z" fill="#e0c060"/>
+    <path d="M 246,320 L 256,368 L 266,320 Z" fill="#b89840"/>
+  </g>
 </svg>

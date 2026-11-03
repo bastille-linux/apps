@@ -1,13 +1,12 @@
 <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
   <rect width="512" height="512" rx="112" fill="#0b0b0b"/>
-  <circle cx="256" cy="252" r="148" fill="none" stroke="rgba(255,255,255,.1)" stroke-width="2"/>
-  <circle cx="256" cy="252" r="98" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="2"/>
-  <circle cx="256" cy="252" r="48" fill="#2a78d6" opacity=".85"/>
-  <circle cx="256" cy="252" r="20" fill="rgba(255,255,255,.92)"/>
-  <line x1="256" y1="252" x2="256" y2="108" stroke="#2a78d6" stroke-width="1.5" opacity=".4"/>
-  <line x1="256" y1="252" x2="384" y2="326" stroke="#2a78d6" stroke-width="1.5" opacity=".4"/>
-  <line x1="256" y1="252" x2="128" y2="326" stroke="#2a78d6" stroke-width="1.5" opacity=".4"/>
-  <circle cx="256" cy="104" r="12" fill="#2a78d6"/>
-  <circle cx="388" cy="330" r="12" fill="#2a78d6"/>
-  <circle cx="124" cy="330" r="12" fill="#2a78d6"/>
+  <circle cx="248" cy="240" r="132" fill="none" stroke="white" stroke-width="11"/>
+  <line x1="116" y1="240" x2="380" y2="240" stroke="white" stroke-width="7" opacity=".45"/>
+  <path d="M 132,185 Q 248,210 364,185" fill="none" stroke="white" stroke-width="7" opacity=".35"/>
+  <path d="M 132,295 Q 248,270 364,295" fill="none" stroke="white" stroke-width="7" opacity=".35"/>
+  <ellipse cx="248" cy="240" rx="58" ry="132" fill="none" stroke="white" stroke-width="7" opacity=".4"/>
+  <circle cx="350" cy="348" r="48" fill="#0b0b0b"/>
+  <path d="M 350,312 L 376,324 L 376,354 Q 376,378 350,388 Q 324,378 324,354 L 324,324 Z" fill="#2a78d6"/>
+  <circle cx="350" cy="346" r="9" fill="rgba(255,255,255,.9)"/>
+  <circle cx="350" cy="346" r="4" fill="#2a78d6"/>
 </svg>

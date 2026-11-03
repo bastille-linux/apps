@@ -1,15 +1,9 @@
 <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
   <rect width="512" height="512" rx="112" fill="#0b0b0b"/>
-  <rect x="136" y="197" width="240" height="7" rx="3.5" fill="rgba(255,255,255,.12)"/>
-  <rect x="136" y="254" width="240" height="7" rx="3.5" fill="rgba(255,255,255,.12)"/>
-  <rect x="136" y="311" width="240" height="7" rx="3.5" fill="rgba(255,255,255,.12)"/>
-  <rect x="136" y="197" width="104" height="7" rx="3.5" fill="#2a78d6" opacity=".6"/>
-  <rect x="136" y="254" width="172" height="7" rx="3.5" fill="#2a78d6" opacity=".6"/>
-  <rect x="136" y="311" width="76" height="7" rx="3.5" fill="#2a78d6" opacity=".6"/>
-  <circle cx="240" cy="200" r="20" fill="#2a78d6"/>
-  <circle cx="308" cy="257" r="20" fill="#2a78d6"/>
-  <circle cx="212" cy="314" r="20" fill="#2a78d6"/>
-  <circle cx="240" cy="200" r="7" fill="rgba(255,255,255,.9)"/>
-  <circle cx="308" cy="257" r="7" fill="rgba(255,255,255,.9)"/>
-  <circle cx="212" cy="314" r="7" fill="rgba(255,255,255,.9)"/>
+  <path fill-rule="evenodd" fill="white" d="
+    M 372,236 L 372,276 L 340,284 L 355,320 L 324,351 L 288,336
+    L 276,372 L 236,372 L 228,336 L 192,351 L 161,320 L 176,284
+    L 140,276 L 140,236 L 176,228 L 161,192 L 192,161 L 228,176
+    L 236,140 L 276,140 L 284,176 L 320,161 L 351,192 L 336,228 Z
+    M 308,256 A 52,52 0 1,0 204,256 A 52,52 0 1,0 308,256 Z"/>
 </svg>

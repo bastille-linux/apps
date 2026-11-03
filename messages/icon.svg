@@ -1,9 +1,8 @@
 <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
   <rect width="512" height="512" rx="112" fill="#0b0b0b"/>
-  <path d="M 168,330 L 136,382 L 222,330 Z" fill="rgba(255,255,255,.09)" stroke="rgba(255,255,255,.22)" stroke-width="2" stroke-linejoin="round"/>
-  <rect x="108" y="132" width="296" height="202" rx="32" fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.22)" stroke-width="2"/>
-  <rect x="222" y="216" width="68" height="58" rx="10" fill="#009300"/>
-  <path d="M 238,216 L 238,194 Q 238,172 256,172 Q 274,172 274,194 L 274,216" fill="none" stroke="#009300" stroke-width="8" stroke-linecap="round"/>
-  <circle cx="256" cy="237" r="9" fill="rgba(0,0,0,.5)"/>
-  <rect x="252" y="237" width="8" height="14" rx="3" fill="rgba(0,0,0,.5)"/>
+  <path d="M 144,120 Q 104,120 104,160 L 104,312 Q 104,352 144,352 L 184,352 L 152,404 L 248,352 L 368,352 Q 408,352 408,312 L 408,160 Q 408,120 368,120 Z" fill="#2a78d6"/>
+  <rect x="214" y="222" width="36" height="34" rx="8" fill="rgba(0,0,0,.5)"/>
+  <path d="M 224,222 L 224,206 Q 224,192 232,192 Q 240,192 240,206 L 240,222" fill="none" stroke="rgba(0,0,0,.5)" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="232" cy="232" r="6" fill="rgba(255,255,255,.7)"/>
+  <rect x="230" y="232" width="5" height="10" rx="2" fill="rgba(255,255,255,.7)"/>
 </svg>
