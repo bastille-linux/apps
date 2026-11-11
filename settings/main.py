@@ -12,6 +12,16 @@ import subprocess
 import shutil
 from gi.repository import Gtk, Adw, Gio, GLib, Pango
 
+for _p in ("/usr/local/lib/bastille-shell",
+           os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib", "bastille-shell")):
+    if os.path.isdir(_p):
+        sys.path.insert(0, _p)
+import appstyle  # noqa: E402  shared Bastille app look
+import icons     # noqa: E402  gradient badges for the sidebar
+import system    # noqa: E402  Wi-Fi / Bluetooth / volume helpers shared with the shell
+import bdesign   # noqa: E402  flat dark design kit (Settings mockup look)
+import bset_pages as bp  # noqa: E402  pages built on the design kit
+
 APP_ID = "org.bastilleos.Settings"
 VERSION = "1.0.0"
 
@@ -256,18 +266,18 @@ class SecurityPinsPage(Gtk.ScrolledWindow):
         fg.add(r2)
         box.append(fg)
 
-        # DSM — Dead Switch Mode
+        # DSM — Device Stress Mode
         dm = Adw.PreferencesGroup()
-        dm.set_title("DSM — Dead Switch Mode")
-        dm.set_description("Automatically triggers duress wipe if a check-in PIN is not entered "
-                           "within the configured interval. Designed for covert operations or custody scenarios.")
-        r_en = BastilleRow("Enable DSM", "Requires check-in at interval", "appointment-soon-symbolic",
+        dm.set_title("DSM — Device Stress Mode")
+        dm.set_description("Watches for forensic tools and brute-force attacks. When one is detected a fake "
+                           "lock screen appears; entering the DSM PIN on it triggers Device Stress Mode.")
+        r_en = BastilleRow("Enable DSM", "Watchdog and fake lock screen", "appointment-soon-symbolic",
                            toggle=True, toggle_active=file_exists("/etc/bastille/dsm.enabled"),
                            on_toggle=self._toggle_dsm)
         dm.add(r_en)
         r_pin = Adw.ActionRow()
         r_pin.set_title("DSM check-in PIN")
-        r_pin.set_subtitle("Enter this periodically to suppress the dead switch")
+        r_pin.set_subtitle("The PIN you would give an examiner")
         btn3 = Gtk.Button.new_with_label("Set PIN")
         btn3.set_valign(Gtk.Align.CENTER)
         btn3.add_css_class("pill")
@@ -615,7 +625,7 @@ class AnonymityPage(Gtk.ScrolledWindow):
         box.append(mg)
 
         tg2 = Adw.PreferencesGroup()
-        tg2.set_title("Timezone & locale")
+        tg2.set_title("Timezone &amp; locale")
         for title, sub in [
             ("Force UTC timezone", "Prevents time-zone fingerprinting"),
             ("Uniform locale (en_US)", "Resist language-based fingerprinting"),
@@ -957,9 +967,12 @@ class KernelBootPage(Gtk.ScrolledWindow):
         apply_btn.set_halign(Gtk.Align.END)
         apply_btn.set_margin_end(32)
         apply_btn.connect("clicked", lambda _: pkexec("sysctl", "-p", "/etc/sysctl.d/99-bastille.conf"))
+        box.append(apply_btn)
 
-        visual = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-        visual.append(kg); visual.append(mg); visual.append(bg)
+        # The groups already belong to `box`; appending them again to another
+        # container causes GTK criticals and removes them from the first view.
+        visual = Gtk.ScrolledWindow()
+        visual.set_child(box)
 
         self.set_child(DualView(visual, adv))
 
@@ -1081,7 +1094,7 @@ class HardwareSecurityPage(Gtk.ScrolledWindow):
         ug.set_title("USBGuard")
         ug.set_description("Block unauthorized USB devices at kernel level")
         r1 = BastilleRow("USBGuard daemon", "Block all USB by default-deny policy", "drive-removable-media-symbolic", toggle=True, toggle_active=True,
-                         on_toggle=lambda v: pkexec("systemctl", "start" if v else "stop", "usbguard"))
+                         on_toggle=lambda v: pkexec("rc-service", "usbguard", "start" if v else "stop"))
         ug.add(r1)
 
         allow_row = Adw.ActionRow()
@@ -1171,179 +1184,407 @@ class UpdatesIntegrityPage(Gtk.ScrolledWindow):
 
 # ── Main window ───────────────────────────────────────────────────────────────
 
-NAV_ITEMS = [
-    ("You", [
-        ("Users", "avatar-default-symbolic", UsersPage),
-        ("Internet Accounts", "web-browser-symbolic", InternetAccountsPage),
+class NetworkListPage(Gtk.ScrolledWindow):
+    """Shared base: a scrolled column of Adw groups that can be rebuilt from a worker thread."""
+
+    def __init__(self):
+        super().__init__()
+        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
+        for side in ("start", "end", "top", "bottom"):
+            getattr(self.box, f"set_margin_{side}")(28 if side in ("start", "end") else 20)
+        self.set_child(self.box)
+
+    def clear(self):
+        c = self.box.get_first_child()
+        while c:
+            self.box.remove(c)
+            c = self.box.get_first_child()
+
+
+class WifiPage(NetworkListPage):
+    def __init__(self):
+        super().__init__()
+        self.build()
+
+    def build(self):
+        self.clear()
+        on = system.wifi_enabled()
+        g = Adw.PreferencesGroup()
+        sw_row = BastilleRow("Wi-Fi", "Connect to wireless networks", "network-wireless-symbolic", toggle=True,
+                             toggle_active=on, on_toggle=self.set_enabled)
+        g.add(sw_row)
+        self.box.append(g)
+        self.nets = Adw.PreferencesGroup()
+        self.nets.set_title("Networks")
+        self.box.append(self.nets)
+        if on:
+            row = Adw.ActionRow()
+            row.set_title("Looking for networks…")
+            row.add_prefix(Gtk.Spinner(spinning=True))
+            self.nets.add(row)
+            self._loading = row
+            import threading
+            threading.Thread(target=lambda: GLib.idle_add(self.fill, system.wifi_networks("auto", 15),
+                                                          system.wifi_known()), daemon=True).start()
+
+    def set_enabled(self, on):
+        import threading
+
+        def work():
+            system.set_wifi(on)
+            GLib.timeout_add(700, lambda: (self.build(), False)[1])
+        threading.Thread(target=work, daemon=True).start()
+
+    def fill(self, nets, known):
+        try:
+            self.nets.remove(self._loading)
+        except Exception:
+            pass
+        if not nets:
+            r = Adw.ActionRow()
+            r.set_title("No networks found")
+            self.nets.add(r)
+        for ssid, sig, in_use, secured in nets:
+            r = Adw.ActionRow()
+            r.set_title(GLib.markup_escape_text(ssid))
+            r.set_subtitle("Connected" if in_use else ("Saved" if ssid in known else ("Secured" if secured else "Open")))
+            r.add_prefix(Gtk.Image.new_from_icon_name("network-wireless-symbolic"))
+            if in_use:
+                b = Gtk.Button.new_with_label("Disconnect")
+                b.connect("clicked", lambda *_: (system.wifi_disconnect(), self.build()))
+            else:
+                b = Gtk.Button.new_with_label("Connect")
+                b.add_css_class("suggested-action")
+                b.connect("clicked", lambda _b, ssid=ssid, sec=secured and ssid not in known: self.join(ssid, sec))
+            b.add_css_class("pill")
+            b.set_valign(Gtk.Align.CENTER)
+            r.add_suffix(b)
+            self.nets.add(r)
+        return False
+
+    def join(self, ssid, needs_password):
+        import threading
+
+        def go(pw):
+            def work():
+                ok, msg = system.wifi_connect(ssid, pw)
+                GLib.idle_add(lambda: (self.build(), False)[1])
+            threading.Thread(target=work, daemon=True).start()
+        if not needs_password:
+            go(None)
+            return
+        dlg = Adw.MessageDialog.new(self.get_root())
+        dlg.set_heading(f"Join “{ssid}”")
+        dlg.set_body("Enter the network password.")
+        entry = Gtk.PasswordEntry()
+        entry.set_show_peek_icon(True)
+        dlg.set_extra_child(entry)
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("join", "Join")
+        dlg.set_response_appearance("join", Adw.ResponseAppearance.SUGGESTED)
+        dlg.connect("response", lambda d, r: go(entry.get_text()) if r == "join" and entry.get_text() else None)
+        dlg.present()
+
+
+class BluetoothPage(NetworkListPage):
+    def __init__(self):
+        super().__init__()
+        self.build()
+
+    def build(self):
+        self.clear()
+        import threading
+
+        def work():
+            st = system.bt_state()
+            devs = system.bt_devices() if st == "on" else []
+            GLib.idle_add(self.render, st, devs)
+        threading.Thread(target=work, daemon=True).start()
+
+    def render(self, st, devs):
+        self.clear()
+        g = Adw.PreferencesGroup()
+        g.add(BastilleRow("Bluetooth", "Bastille keeps Bluetooth blocked until you turn it on",
+                          "bluetooth-symbolic", toggle=True, toggle_active=(st == "on"), on_toggle=self.set_enabled))
+        self.box.append(g)
+        if st == "none":
+            sp = Adw.StatusPage()
+            sp.set_icon_name("bluetooth-disabled-symbolic")
+            sp.set_title("Bluetooth unavailable")
+            sp.set_description("No adapter was found, or the Bluetooth stack isn’t installed.")
+            self.box.append(sp)
+        elif st != "on":
+            sp = Adw.StatusPage()
+            sp.set_icon_name("bluetooth-disabled-symbolic")
+            sp.set_title("Bluetooth is off")
+            sp.set_description("Turn it on above while you need to pair or use a device.")
+            self.box.append(sp)
+        else:
+            dg = Adw.PreferencesGroup()
+            dg.set_title("My Devices")
+            if not devs:
+                r = Adw.ActionRow()
+                r.set_title("No devices")
+                r.set_subtitle("Pair one with bluetoothctl and it will appear here.")
+                dg.add(r)
+            for d in devs:
+                r = Adw.ActionRow()
+                r.set_title(GLib.markup_escape_text(d["name"]))
+                r.set_subtitle(("Connected" if d["connected"] else "Not connected")
+                               + (f" · {d['battery']}%" if d["battery"] is not None else ""))
+                r.add_prefix(Gtk.Image.new_from_icon_name("bluetooth-symbolic"))
+                b = Gtk.Button.new_with_label("Disconnect" if d["connected"] else "Connect")
+                b.add_css_class("pill")
+                b.set_valign(Gtk.Align.CENTER)
+                b.connect("clicked", lambda _b, d=d: self.toggle(d))
+                r.add_suffix(b)
+                dg.add(r)
+            self.box.append(dg)
+        return False
+
+    def set_enabled(self, on):
+        import threading
+        threading.Thread(target=lambda: (system.set_bluetooth(on), GLib.idle_add(lambda: (self.build(), False)[1])),
+                         daemon=True).start()
+
+    def toggle(self, d):
+        import threading
+        threading.Thread(target=lambda: (system.bt_connect(d["mac"], not d["connected"]),
+                                         GLib.idle_add(lambda: (self.build(), False)[1])), daemon=True).start()
+
+
+class DisplaysPage(NetworkListPage):
+    def __init__(self):
+        super().__init__()
+        g = Adw.PreferencesGroup()
+        g.set_title("Brightness")
+        b = system.brightness()
+        row = Adw.ActionRow()
+        row.set_title("Display brightness")
+        row.set_subtitle("Built-in display" if b is not None else "No adjustable display found")
+        sc = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 1, 100, 1)
+        sc.set_size_request(260, -1)
+        sc.set_draw_value(False)
+        sc.set_valign(Gtk.Align.CENTER)
+        sc.set_sensitive(b is not None)
+        sc.set_value(b or 50)
+        sc.connect("value-changed", lambda s: system.set_brightness(s.get_value()))
+        row.add_suffix(sc)
+        g.add(row)
+        self.box.append(g)
+
+
+class SoundPage(NetworkListPage):
+    def __init__(self):
+        super().__init__()
+        g = Adw.PreferencesGroup()
+        g.set_title("Output")
+        v, muted = system.volume()
+        row = Adw.ActionRow()
+        row.set_title("Output volume")
+        sc = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
+        sc.set_size_request(260, -1)
+        sc.set_draw_value(False)
+        sc.set_valign(Gtk.Align.CENTER)
+        sc.set_value(v)
+        sc.connect("value-changed", lambda s: system.set_volume(s.get_value()))
+        row.add_suffix(sc)
+        g.add(row)
+        g.add(BastilleRow("Mute", "Silence the default output", "audio-volume-muted-symbolic", toggle=True,
+                          toggle_active=muted, on_toggle=lambda v: system.toggle_mute()))
+        self.box.append(g)
+
+
+NAV_ITEMS = [   # (section, [(page name, glyph, page class)])
+    ("System", [
+        ("About", "info", bp.AboutPage),
+        ("Performance", "cpu", bp.PerformancePage),
+        ("Power", "battery", bp.PowerPage),
+        ("Display", "display", DisplaysPage),
+        ("Sound", "volume", SoundPage),
+        ("Printers", "printer", bp.PrintersPage),
+        ("Persistence", "hdd", PersistencePage),
+        ("Kernel & Boot", "gear", KernelBootPage),
     ]),
     ("Security", [
-        ("Privacy & Security", "security-high-symbolic", PrivacySecurityPage),
-        ("Security Pins", "dialog-password-symbolic", SecurityPinsPage),
-        ("Screen Lock & Auth", "input-dialpad-symbolic", ScreenLockPage),
-        ("AppArmor", "security-high-symbolic", AppArmorPage),
-        ("Hardware Security", "emblem-system-symbolic", HardwareSecurityPage),
-        ("Firewall", "network-firewall-symbolic", FirewallPage),
-        ("VPN", "network-vpn-symbolic", VPNPage),
-        ("DNS", "network-server-symbolic", DNSPage),
-        ("Anonymity", "face-uncertain-symbolic", AnonymityPage),
-        ("USB Security", "drive-removable-media-symbolic", USBSecurityPage),
-    ]),
-    ("System", [
-        ("Kernel & Boot", "emblem-system-symbolic", KernelBootPage),
-        ("Disk Encryption", "channel-secure-symbolic", DiskEncryptionPage),
-        ("Updates & Integrity", "software-update-available-symbolic", UpdatesIntegrityPage),
-        ("Appearance", "preferences-desktop-wallpaper-symbolic", AppearancePage),
-        ("Displays", "video-display-symbolic", None),
-        ("Sound", "audio-volume-high-symbolic", None),
-        ("Keyboard", "input-keyboard-symbolic", None),
-        ("Accessibility", "preferences-desktop-accessibility-symbolic", None),
-        ("Notifications", "notification-symbolic", None),
+        ("Security & Privacy", "shield", bp.SecurityPrivacyPage),
+        ("Security PINs", "key", SecurityPinsPage),
+        ("Screen Lock & Auth", "lock", ScreenLockPage),
+        ("Disk Encryption", "lock", bp.DiskEncryptionPage),
+        ("Key Management", "key", bp.KeyManagementPage),
+        ("AppArmor", "shield", AppArmorPage),
+        ("Firewall", "layers", FirewallPage),
+        ("Audit Log", "bug", bp.AuditLogPage),
     ]),
     ("Network", [
-        ("Wi-Fi", "network-wireless-symbolic", None),
-        ("Bluetooth", "bluetooth-symbolic", None),
+        ("Wi-Fi & Network", "wifi", WifiPage),
+        ("VPN / WireGuard", "vpn", VPNPage),
+        ("DNS", "globe", DNSPage),
+        ("Tor", "globe", bp.TorPage),
+        ("Anonymity", "face", AnonymityPage),
     ]),
-    ("Storage", [
-        ("Persistence", "drive-harddisk-symbolic", PersistencePage),
-        ("Updates", "software-update-available-symbolic", UpdatesPage),
+    ("Applications", [
+        ("Installed Apps", "apps", ApplicationsPage),
+        ("Flatpak Sandbox", "layers", bp.FlatpakPage),
+        ("Software Updates", "download", UpdatesIntegrityPage),
+        ("Bastille Updates", "refresh", UpdatesPage),
     ]),
-    ("Apps", [
-        ("Applications", "application-x-executable-symbolic", ApplicationsPage),
-        ("Printers & Scanners", "printer-symbolic", None),
+    ("User", [
+        ("Accounts", "user", UsersPage),
+        ("Internet Accounts", "globe", InternetAccountsPage),
+        ("Notifications", "bell", bp.NotificationsPage),
+        ("Language & Region", "globe", bp.LanguagePage),
+        ("Accessibility", "access", bp.AccessibilityPage),
+        ("Appearance", "sparkle", AppearancePage),
+    ]),
+    ("Hardware", [
+        ("USB Devices", "usb", bp.UsbPage),
+        ("USB Security", "usb", USBSecurityPage),
+        ("Hardware Security", "cpu", HardwareSecurityPage),
+        ("Bluetooth", "bt", BluetoothPage),
+        ("Camera & Mic", "camera", bp.CameraMicPage),
+        ("Keyboard", "keyboard", bp.KeyboardPage),
+        ("Mouse & Touchpad", "sliders", bp.MousePage),
     ]),
 ]
 
 
 class BastilleSettings(Adw.ApplicationWindow):
+    """Bastille Settings: flat dark sidebar of categories on the left, one page per category on the right."""
+
     def __init__(self, app):
         super().__init__(application=app)
-        self.set_title("Bastille Settings")
-        self.set_default_size(900, 620)
-
-        # Page cache
-        self._pages = {}
+        self.add_css_class("bapp")
+        self.add_css_class("b2")
+        self.set_title("Settings")
+        self.set_default_size(1024, 680)
         self._rows = {}
+        try:    # double-click the top bar to maximise (fill the screen without fullscreen)
+            import sys as _sys
+            _sys.path.insert(0, "/usr/local/lib/bastille-shell")
+            import bdesign as _bdesign
+            _bdesign.enable_maximize(self)
+        except Exception:  # noqa: BLE001
+            pass
 
-        split = Adw.NavigationSplitView()
-        split.set_min_sidebar_width(220)
-        split.set_max_sidebar_width(260)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
 
-        # Sidebar
-        sidebar_nav = Adw.NavigationPage()
-        sidebar_nav.set_title("Settings")
-        sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        header = Adw.HeaderBar()
-        header.set_show_end_title_buttons(False)
-        sidebar_box.append(header)
+        # ── title bar: traffic lights + centred title (drag handle) ──
+        handle = Gtk.WindowHandle()
+        bar = Gtk.CenterBox()
+        bar.add_css_class("b2-titlebar")
+        lights = appstyle.traffic_lights()
+        lights.set_margin_start(14)
+        bar.set_start_widget(lights)
+        title = Gtk.Label(label="Settings")
+        title.add_css_class("b2-title")
+        bar.set_center_widget(title)
+        handle.set_child(bar)
+        outer.append(handle)
 
-        search = Gtk.SearchEntry()
-        search.set_placeholder_text("Search settings")
-        search.set_margin_start(12); search.set_margin_end(12)
-        search.set_margin_bottom(8)
-        sidebar_box.append(search)
+        root = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, vexpand=True)
+
+        # ── sidebar ──
+        side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        side.add_css_class("b2-nav")
+        side.set_size_request(232, -1)
+        self.search = Gtk.SearchEntry()
+        self.search.set_placeholder_text("Search settings…")
+        self.search.add_css_class("b2-search")
+        self.search.set_margin_bottom(6)
+        side.append(self.search)
 
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroll.set_vexpand(True)
-        nav_list = Gtk.ListBox()
-        nav_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
-        nav_list.add_css_class("navigation-sidebar")
-        nav_list.connect("row-selected", self._on_nav_select)
-
+        self.nav = Gtk.ListBox()
+        self.nav.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.nav.add_css_class("navigation-sidebar")
+        self.nav.connect("row-selected", self._on_nav_select)
+        self.nav.set_filter_func(self._filter)
+        self.search.connect("search-changed", lambda *_: self.nav.invalidate_filter())
         for section, items in NAV_ITEMS:
-            lbl = Gtk.Label.new(section)
-            lbl.add_css_class("heading")
-            lbl.add_css_class("dim-label")
-            lbl.set_halign(Gtk.Align.START)
-            lbl.set_margin_start(12); lbl.set_margin_top(12); lbl.set_margin_bottom(4)
-            sep_row = Gtk.ListBoxRow()
-            sep_row.set_child(lbl)
-            sep_row.set_selectable(False)
-            sep_row.set_activatable(False)
-            nav_list.append(sep_row)
-
-            for name, icon, page_cls in items:
+            hdr = Gtk.ListBoxRow()
+            hdr.set_selectable(False)
+            hdr.set_activatable(False)
+            lbl = Gtk.Label(label=section.upper(), xalign=0)
+            lbl.add_css_class("b2-navlabel")
+            hdr.set_child(lbl)
+            hdr._is_header = True
+            hdr._section = section
+            self.nav.append(hdr)
+            for name, glyph, page_cls in items:
                 row = Gtk.ListBoxRow()
-                row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-                row_box.set_margin_start(12); row_box.set_margin_end(12)
-                row_box.set_margin_top(7); row_box.set_margin_bottom(7)
-                img = Gtk.Image.new_from_icon_name(icon)
-                img.set_pixel_size(20)
-                lbl2 = Gtk.Label.new(name)
-                lbl2.set_halign(Gtk.Align.START)
-                lbl2.set_hexpand(True)
-                row_box.append(img)
-                row_box.append(lbl2)
-                row.set_child(row_box)
+                row.add_css_class("b2-navitem")
+                box = Gtk.Box(spacing=9)
+                box.set_margin_start(10)
+                box.set_margin_end(10)
+                box.set_margin_top(7)
+                box.set_margin_bottom(7)
+                box.append(icons.icon(glyph, "#898781", 15, 1.9))
+                box.append(Gtk.Label(label=name, xalign=0, hexpand=True))
+                row.set_child(box)
                 row._page_name = name
                 row._page_cls = page_cls
-                nav_list.append(row)
+                row._section = section
+                self.nav.append(row)
                 self._rows[name] = row
+        scroll.set_child(self.nav)
+        side.append(scroll)
+        root.append(side)
 
-        scroll.set_child(nav_list)
-        sidebar_box.append(scroll)
+        # ── content ──
+        self.stack = Gtk.Stack()
+        self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self.stack.set_transition_duration(150)
+        self.stack.set_hexpand(True)
+        self.stack.set_vexpand(True)
+        root.append(self.stack)
+        outer.append(root)
+        self.set_content(outer)
 
-        sidebar_page = Adw.ToolbarView()
-        sidebar_page.set_content(sidebar_box)
-        sidebar_nav.set_child(sidebar_page)
-
-        # Content
-        self._content_nav = Adw.NavigationPage()
-        self._content_nav.set_title("Settings")
-        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self._content_header = Adw.HeaderBar()
-        content_box.append(self._content_header)
-        self._content_area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self._content_area.set_vexpand(True)
-
-        # Placeholder
-        ph = Adw.StatusPage()
-        ph.set_icon_name("security-high-symbolic")
-        ph.set_title("Bastille Settings")
-        ph.set_description("Select a category from the sidebar.")
-        self._content_area.append(ph)
-        self._placeholder = ph
-
-        content_box.append(self._content_area)
-        self._content_nav.set_child(content_box)
-
-        split.set_sidebar(sidebar_nav)
-        split.set_content(self._content_nav)
-        self.set_content(split)
-
-        # Select first real row
-        first = self._rows.get("Privacy & Security")
+        first = self._rows.get("Security & Privacy")
         if first:
-            nav_list.select_row(first)
+            self.nav.select_row(first)
+
+    def _filter(self, row):
+        q = self.search.get_text().strip().lower()
+        if getattr(row, "_is_header", False):
+            return not q
+        return not q or q in getattr(row, "_page_name", "").lower() or q in getattr(row, "_section", "").lower()
+
+    @staticmethod
+    def _wrap_legacy(name, page):
+        """Pages not yet rebuilt on the design kit get the same title block as the new ones."""
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        box.add_css_class("b2-panel")
+        head = Gtk.Label(label=name, xalign=0)
+        head.add_css_class("b2-panel-title")
+        head.set_margin_start(32)
+        head.set_margin_top(20)
+        head.set_margin_bottom(4)
+        box.append(head)
+        page.set_vexpand(True)
+        box.append(page)
+        return box
 
     def _on_nav_select(self, listbox, row):
-        if row is None or not hasattr(row, '_page_cls'):
+        if row is None or not hasattr(row, "_page_cls"):
             return
         name = row._page_name
-        self._content_header.set_title_widget(Adw.WindowTitle.new(name, ""))
-        self._content_nav.set_title(name)
-
-        # Clear old content
-        child = self._content_area.get_first_child()
-        while child:
-            nxt = child.get_next_sibling()
-            self._content_area.remove(child)
-            child = nxt
-
-        if row._page_cls is None:
-            ph = Adw.StatusPage()
-            ph.set_icon_name("preferences-system-symbolic")
-            ph.set_title(name)
-            ph.set_description("This section is coming soon.")
-            ph.set_vexpand(True)
-            self._content_area.append(ph)
-            return
-
-        if name not in self._pages:
-            self._pages[name] = row._page_cls()
-        page = self._pages[name]
-        page.set_vexpand(True)
-        self._content_area.append(page)
+        if self.stack.get_child_by_name(name) is None:
+            try:
+                page = row._page_cls()
+                if not isinstance(page, bdesign.Page):
+                    page = self._wrap_legacy(name, page)
+            except Exception as e:  # a broken page must not take the whole app down
+                page = Adw.StatusPage()
+                page.set_icon_name("dialog-error-symbolic")
+                page.set_title(f"Couldn\u2019t load {name}")
+                page.set_description(str(e))
+            page.set_vexpand(True)
+            self.stack.add_named(page, name)
+        self.stack.set_visible_child_name(name)
 
 
 class BastilleSettingsApp(Adw.Application):
@@ -1352,9 +1593,10 @@ class BastilleSettingsApp(Adw.Application):
         self.connect("activate", self._on_activate)
 
     def _on_activate(self, app):
-        mgr = Adw.StyleManager.get_default()
-        mgr.set_color_scheme(Adw.ColorScheme.FORCE_DARK)
-        win = BastilleSettings(app)
+        Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.FORCE_DARK)
+        appstyle.install()
+        bdesign.install()
+        win = app.get_active_window() or BastilleSettings(app)
         win.present()
 
 

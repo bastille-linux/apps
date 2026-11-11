@@ -1,352 +1,686 @@
 #!/usr/bin/env python3
-"""bastille-browser — Tor Browser launcher with circuit & privacy panel."""
+"""bastille-browser — a real browser (WebKitGTK) with vertical tabs and built-in Tor.
+
+* Zen-style layout: one sidebar holds the window buttons, navigation, address
+  bar and the tab list; the page sits in a rounded card beside it.
+* Ordinary tabs go straight out (DNS via the system's resolver).
+* Tor tabs run in an ephemeral session whose traffic goes through a Tor
+  client this app starts itself (as the logged-in user, no root needed).
+  Any *.onion address opens in a Tor tab automatically.
+"""
 import gi
-gi.require_version('Gtk', '4.0')
-gi.require_version('Adw', '1')
-import sys, os, subprocess, json, threading
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+gi.require_version("WebKit", "6.0")
+import ctypes
+import json
+import os
+import re
+import signal
+import socket
+import subprocess
+import sys
+import threading
 from pathlib import Path
-from gi.repository import Gtk, Adw, Gio, GLib
+from urllib.parse import quote_plus, urlparse
+
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk, WebKit
+
+for _p in ("/usr/local/lib/bastille-shell",
+           os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib", "bastille-shell")):
+    if os.path.isdir(_p):
+        sys.path.insert(0, _p)
+import appstyle  # noqa: E402
+import bdesign as bd  # noqa: E402
+import icons  # noqa: E402
 
 APP_ID = "org.bastilleos.Browser"
-TOR_PATHS = [
-    Path.home() / ".local/share/torbrowser/tbb/x86_64/tor-browser/Browser/start-tor-browser",
-    Path("/usr/bin/tor-browser"),
-    Path("/opt/tor-browser/start-tor-browser"),
-    Path("/usr/bin/torbrowser-launcher"),
-]
-TOR_CTRL_PORT = 9051
-TOR_COOKIE = Path("/var/run/tor/control.authcookie")
-DATA_DIR = Path.home() / ".local/share/bastille-browser"
+DATA_DIR = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "bastille-browser"
 BOOKMARKS_FILE = DATA_DIR / "bookmarks.json"
+TOR_DIR = DATA_DIR / "tor"
+TOR_SOCKS = 9150           # not 9050/9051, so it never clashes with a system Tor
+TOR_CTRL = 9151
+SEARCH = "https://duckduckgo.com/?q="
+HOME = "bastille://start"
 
-PRIVACY_CHECKS = [
-    ("WebRTC disabled", True),
-    ("Canvas fingerprint blocked", True),
-    ("Font fingerprint blocked", True),
-    ("JS sandboxed", True),
-    ("3rd-party cookies blocked", True),
-    ("Referrer stripped", True),
-    ("DNS via Tor", True),
-    ("Tracker blocked", True),
-]
+CSS = """
+.bb-side { background: #151515; padding: 8px 10px 10px 10px; }
+.bb-url { background: #1f1f1e; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px;
+          min-height: 34px; padding: 0 10px; color: #f0efec; box-shadow: none; }
+.bb-url:focus-within { border-color: #2a78d6; }
+.bb-icon { background: transparent; border: none; box-shadow: none; padding: 0; min-width: 30px;
+           min-height: 30px; border-radius: 8px; }
+.bb-icon:hover { background: rgba(255,255,255,0.08); }
+.bb-icon:disabled { opacity: 0.35; }
+.bb-tabs, .bb-tabs row { background: transparent; }
+.bb-tab { border-radius: 9px; padding: 0; margin: 1px 0; }
+.bb-tab:hover { background: rgba(255,255,255,0.06); }
+.bb-tab:selected { background: rgba(255,255,255,0.11); }
+.bb-tab label { font-size: 12.5px; color: #d6d4cb; }
+.bb-tab-tor label { color: #c9a6ff; }
+.bb-newtab { background: transparent; border: 1px dashed rgba(255,255,255,0.14); border-radius: 9px;
+             min-height: 30px; color: #898781; box-shadow: none; }
+.bb-newtab:hover { background: rgba(255,255,255,0.06); color: #f0efec; }
+.bb-torbtn { background: rgba(147,51,234,0.16); border-radius: 9px; min-height: 30px; border: none;
+             box-shadow: none; color: #c9a6ff; }
+.bb-torbtn:hover { background: rgba(147,51,234,0.28); }
+.bb-page { background: #0b0b0b; border-radius: 12px; margin: 8px 8px 8px 0; }
+.bb-prog trough { min-height: 2px; background: transparent; }
+.bb-prog progress { min-height: 2px; background: #2a78d6; }
+.bb-status { font-size: 11px; color: #898781; }
+"""
 
 
-def find_tor_browser():
-    for p in TOR_PATHS:
-        if p.exists():
-            return str(p)
-    for name in ["torbrowser-launcher", "tor-browser"]:
-        try:
-            r = subprocess.run(["which", name], capture_output=True, text=True)
-            if r.returncode == 0:
-                return r.stdout.strip()
-        except Exception:
-            pass
-    return None
-
-
-def get_tor_circuit():
-    """Attempt to get Tor circuit info via control port."""
+def load_bookmarks():
     try:
-        import socket
+        return json.loads(BOOKMARKS_FILE.read_text())
+    except Exception:  # noqa: BLE001
+        return [{"title": "DuckDuckGo", "url": "https://duckduckgo.com"},
+                {"title": "DuckDuckGo (onion)",
+                 "url": "http://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion"},
+                {"title": "EFF Surveillance Self-Defense", "url": "https://ssd.eff.org"}]
+
+
+def save_bookmarks(bms):
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    BOOKMARKS_FILE.write_text(json.dumps(bms, indent=2))
+
+
+def is_onion(uri):
+    try:
+        return (urlparse(uri).hostname or "").endswith(".onion")
+    except ValueError:
+        return False
+
+
+def normalise(text):
+    """Address-bar text -> URL (or a DuckDuckGo search)."""
+    t = text.strip()
+    if not t:
+        return HOME
+    if re.match(r"^[a-z][a-z0-9+.-]*://", t, re.I) or t.startswith(("about:", "bastille:")):
+        return t
+    host = t.split("/")[0].split(":")[0]
+    if " " not in t and (host.endswith(".onion")):
+        return "http://" + t
+    if " " not in t and ("." in host or host == "localhost") and not host.startswith("."):
+        return "https://" + t
+    return SEARCH + quote_plus(t)
+
+
+def start_page(bookmarks, tor):
+    tiles = "".join(
+        f'<a class="tile" href="{b["url"]}"><b>{(b.get("title") or b["url"])[:28]}</b>'
+        f'<span>{urlparse(b["url"]).hostname or ""}</span></a>' for b in bookmarks[:12])
+    accent = "#b57bff" if tor else "#2a78d6"
+    head = "Tor tab" if tor else "Bastille Browser"
+    sub = ("Everything in this tab goes through Tor. .onion sites work here."
+           if tor else "Type an address or search above. Addresses ending in .onion open in a Tor tab.")
+    return f"""<!doctype html><meta charset=utf-8><title>New tab</title>
+<style>
+html,body{{margin:0;height:100%;background:#0b0b0b;color:#f0efec;font:15px system-ui,sans-serif}}
+main{{max-width:760px;margin:0 auto;padding:12vh 24px 0}}
+h1{{font-weight:600;font-size:28px;margin:0 0 6px}} p{{color:#898781;margin:0 0 28px}}
+form{{margin-bottom:34px}}
+input{{width:100%;box-sizing:border-box;background:#1a1a19;border:1px solid #2b2b2a;color:#f0efec;
+border-radius:12px;padding:14px 16px;font-size:16px;outline:none}}
+input:focus{{border-color:{accent}}}
+.grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}}
+.tile{{display:flex;flex-direction:column;gap:4px;padding:14px;background:#151515;border:1px solid #232322;
+border-radius:12px;text-decoration:none;color:#f0efec}}
+.tile:hover{{border-color:{accent}}} .tile span{{font-size:12px;color:#898781;overflow:hidden;text-overflow:ellipsis}}
+</style><main><h1 style="color:{accent}">{head}</h1><p>{sub}</p>
+<form action="https://duckduckgo.com/" method="get"><input name="q" placeholder="Search DuckDuckGo" autofocus></form>
+<div class="grid">{tiles}</div></main>"""
+
+
+class TorClient:
+    """A private Tor client owned by this app (SOCKS 9150, control 9151)."""
+
+    def __init__(self, on_progress):
+        self.proc = None
+        self.progress = 0
+        self.ready = False
+        self.failed = None
+        self.on_progress = on_progress
+
+    def start(self):
+        if self.proc or self.ready:
+            return
+        TOR_DIR.mkdir(parents=True, exist_ok=True)
+        os.chmod(TOR_DIR, 0o700)
+        tor = "/usr/bin/tor"
+        if not os.path.exists(tor):
+            self.failed = "Tor is not installed"
+            self.on_progress()
+            return
+
+        def preexec():     # die with the browser
+            try:
+                ctypes.CDLL("libc.so.6").prctl(1, signal.SIGTERM)
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            self.proc = subprocess.Popen(
+                [tor, "--SocksPort", f"127.0.0.1:{TOR_SOCKS}", "--ControlPort", f"127.0.0.1:{TOR_CTRL}",
+                 "--CookieAuthentication", "1", "--DataDirectory", str(TOR_DIR), "--ClientOnly", "1",
+                 "--AvoidDiskWrites", "1", "--Log", "notice stdout"],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, preexec_fn=preexec)
+        except Exception as e:  # noqa: BLE001
+            self.failed = f"Could not start Tor: {e}"
+            self.on_progress()
+            return
+        threading.Thread(target=self._read, daemon=True).start()
+
+    def _read(self):
+        tail = []
+        for line in self.proc.stdout:
+            tail = (tail + [line.strip()])[-6:]
+            m = re.search(r"Bootstrapped (\d+)%", line)
+            if m:
+                self.progress = int(m.group(1))
+                self.ready = self.progress >= 100
+                GLib.idle_add(self.on_progress)
+        if not self.ready:
+            self.failed = "Tor stopped: " + (" | ".join(tail[-2:]) or "no output")
+            GLib.idle_add(self.on_progress)
+
+    def stop(self):
+        if self.proc:
+            try:
+                self.proc.terminate()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _control(self, *cmds):
         s = socket.socket()
-        s.settimeout(3)
-        s.connect(("127.0.0.1", TOR_CTRL_PORT))
-        if TOR_COOKIE.exists():
-            cookie = TOR_COOKIE.read_bytes()
-            auth = b"AUTHENTICATE " + cookie.hex().encode() + b"\r\n"
-        else:
-            auth = b"AUTHENTICATE\r\n"
-        s.sendall(auth)
+        s.settimeout(4)
+        s.connect(("127.0.0.1", TOR_CTRL))
+        cookie = (TOR_DIR / "control_auth_cookie").read_bytes().hex()
+        s.sendall(f"AUTHENTICATE {cookie}\r\n".encode())
         s.recv(256)
-        s.sendall(b"GETINFO circuit-status\r\n")
-        data = b""
-        while True:
-            chunk = s.recv(4096)
-            if not chunk:
-                break
-            data += chunk
-            if b"\r\n.\r\n" in data or b"250 OK" in data:
-                break
+        out = b""
+        for c in cmds:
+            s.sendall(c.encode() + b"\r\n")
+            out += s.recv(8192)
         s.close()
-        text = data.decode(errors="replace")
-        circuits = []
+        return out.decode(errors="replace")
+
+    def new_identity(self):
+        try:
+            return "250" in self._control("SIGNAL NEWNYM")
+        except Exception:  # noqa: BLE001
+            return False
+
+    def circuit(self):
+        try:
+            text = self._control("GETINFO circuit-status")
+        except Exception:  # noqa: BLE001
+            return None
         for line in text.splitlines():
-            if "BUILT" in line and "$" in line:
-                hops = [h.split("~")[-1] if "~" in h else h[:8] for h in line.split("$")[1:]]
-                circuits.append(hops)
-        return circuits[:1] if circuits else None
-    except Exception:
+            if " BUILT " in line and "$" in line:
+                return [h.split("~")[-1] if "~" in h else h[:8] for h in line.split("$")[1:]][:3]
         return None
 
 
-class CircuitPanel(Gtk.Box):
-    def __init__(self):
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        self.add_css_class("card")
-        self.set_margin_start(12); self.set_margin_end(12)
-        self.set_margin_top(4); self.set_margin_bottom(4)
-        self.set_size_request(240, -1)
-
-        title_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        icon = Gtk.Image.new_from_icon_name("network-vpn-symbolic")
-        lbl = Gtk.Label(label="Tor Circuit")
-        lbl.add_css_class("heading")
-        title_box.append(icon)
-        title_box.append(lbl)
-        self.append(title_box)
-
-        self._nodes_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.append(self._nodes_box)
-
-        new_circuit_btn = Gtk.Button.new_with_label("New Circuit")
-        new_circuit_btn.connect("clicked", self._new_circuit)
-        self.append(new_circuit_btn)
-
-        self._loading = Gtk.Label(label="Checking circuit…")
-        self._loading.add_css_class("dim-label")
-        self._loading.add_css_class("caption")
-        self.append(self._loading)
-
-        self.refresh()
-
-    def refresh(self):
-        threading.Thread(target=self._fetch_circuit, daemon=True).start()
-
-    def _fetch_circuit(self):
-        circuits = get_tor_circuit()
-        GLib.idle_add(self._update_circuit, circuits)
-
-    def _update_circuit(self, circuits):
-        while self._nodes_box.get_first_child():
-            self._nodes_box.remove(self._nodes_box.get_first_child())
-        self._loading.set_visible(False)
-
-        if not circuits:
-            row = Gtk.Label(label="No circuit info available\n(Tor control port not accessible)")
-            row.add_css_class("dim-label")
-            row.add_css_class("caption")
-            row.set_wrap(True)
-            self._nodes_box.append(row)
-            return
-
-        labels = ["Entry (Guard)", "Middle", "Exit"]
-        for i, hop in enumerate(circuits[0][:3]):
-            box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            box.set_margin_start(4)
-            dot = Gtk.Label(label="●")
-            dot.add_css_class("accent" if i < 2 else "warning")
-            lbl = Gtk.Label(label=f"{labels[i] if i < len(labels) else 'Hop'}: {hop}")
-            lbl.add_css_class("caption")
-            lbl.set_halign(Gtk.Align.START)
-            box.append(dot); box.append(lbl)
-            self._nodes_box.append(box)
-        return False
-
-    def _new_circuit(self, *_):
-        try:
-            import socket
-            s = socket.socket()
-            s.settimeout(3)
-            s.connect(("127.0.0.1", TOR_CTRL_PORT))
-            if TOR_COOKIE.exists():
-                auth = b"AUTHENTICATE " + TOR_COOKIE.read_bytes().hex().encode() + b"\r\n"
-            else:
-                auth = b"AUTHENTICATE\r\n"
-            s.sendall(auth)
-            s.recv(256)
-            s.sendall(b"SIGNAL NEWNYM\r\n")
-            s.close()
-        except Exception:
-            pass
-        GLib.timeout_add(2000, self.refresh)
+class Tab:
+    def __init__(self, view, tor):
+        self.view = view
+        self.tor = tor
+        self.pending = None       # URL waiting for Tor to finish bootstrapping
+        self.row = None
+        self.title_lbl = None
+        self.fav = None
 
 
 class BrowserWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app)
+        self.add_css_class("bapp")
+        self.add_css_class("b2")
         self.set_title("Browser")
-        self.set_default_size(800, 580)
-        self._tor_proc = None
-        self._bookmarks = self._load_bookmarks()
+        self.set_default_size(1100, 700)
+        self.bookmarks = load_bookmarks()
+        self.tabs = []
+        self.tor = TorClient(self._tor_progress)
+        self._tor_session = None
+        self._build_sessions()
+        try:    # double-click the top bar to maximise (fill the screen without fullscreen)
+            bd.enable_maximize(self)
+        except Exception:  # noqa: BLE001
+            pass
 
-        split = Adw.NavigationSplitView()
-        split.set_min_sidebar_width(260)
-        split.set_max_sidebar_width(300)
+        root = Gtk.Box()
+        root.append(self._build_sidebar())
+        page = Gtk.Overlay()
+        page.add_css_class("bb-page")
+        page.set_overflow(Gtk.Overflow.HIDDEN)
+        page.set_hexpand(True)
+        self.stack = Gtk.Stack(hexpand=True, vexpand=True)
+        page.set_child(self.stack)
+        self.prog = Gtk.ProgressBar()
+        self.prog.add_css_class("bb-prog")
+        self.prog.set_valign(Gtk.Align.START)
+        self.prog.set_visible(False)
+        page.add_overlay(self.prog)
+        root.append(page)
+        self.set_content(root)
 
-        # Sidebar
-        sidebar_nav = Adw.NavigationPage()
-        sidebar_nav.set_title("Browser")
-        sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        hdr = Adw.HeaderBar()
-        hdr.set_title_widget(Adw.WindowTitle.new("Bastille Browser", ""))
-        sidebar_box.append(hdr)
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", self._on_key)
+        self.add_controller(keys)
+        self.connect("close-request", self._on_close)
+        self.new_tab(HOME)
 
-        # Privacy status
-        status_grp = Adw.PreferencesGroup()
-        status_grp.set_title("Privacy Status")
-        status_grp.set_margin_start(12); status_grp.set_margin_end(12)
-        status_grp.set_margin_top(8)
-        for label, ok in PRIVACY_CHECKS:
-            row = Adw.ActionRow()
-            row.set_title(label)
-            icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic" if ok else "dialog-warning-symbolic")
-            row.add_prefix(icon)
-            status_grp.add(row)
-        sidebar_box.append(status_grp)
-
-        # Tor circuit
-        circuit_grp = Adw.PreferencesGroup()
-        circuit_grp.set_title("Tor Circuit")
-        circuit_grp.set_margin_start(12); circuit_grp.set_margin_end(12)
-        circuit_grp.set_margin_top(8)
-        self._circuit_panel = CircuitPanel()
-        circuit_grp.add(self._circuit_panel)
-        sidebar_box.append(circuit_grp)
-
-        sidebar_nav.set_child(sidebar_box)
-
-        # Content pane
-        content_nav = Adw.NavigationPage()
-        content_nav.set_title("Launch")
-        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        content_hdr = Adw.HeaderBar()
-        content_hdr.set_title_widget(Adw.WindowTitle.new("Bastille Browser", "Privacy by default"))
-        refresh_btn = Gtk.Button()
-        refresh_btn.set_icon_name("view-refresh-symbolic")
-        refresh_btn.set_tooltip_text("Refresh circuit info")
-        refresh_btn.connect("clicked", lambda _: self._circuit_panel.refresh())
-        content_hdr.pack_end(refresh_btn)
-        content_box.append(content_hdr)
-
-        # Launch panel
-        launch_page = Adw.StatusPage()
-        launch_page.set_icon_name("security-high-symbolic")
-        launch_page.set_title("Bastille Browser")
-        launch_page.set_description(
-            "A Tor Browser wrapper with integrated circuit monitoring\n"
-            "and privacy controls. All traffic is routed through Tor.")
-        launch_page.set_vexpand(True)
-
-        btn_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        btn_box.set_halign(Gtk.Align.CENTER)
-
-        launch_btn = Gtk.Button.new_with_label("Launch Tor Browser")
-        launch_btn.add_css_class("suggested-action")
-        launch_btn.add_css_class("pill")
-        launch_btn.set_size_request(220, 48)
-        launch_btn.connect("clicked", self._launch_tor)
-
-        self._status_lbl = Gtk.Label(label="")
-        self._status_lbl.add_css_class("caption")
-        self._status_lbl.add_css_class("dim-label")
-
-        tor_path = find_tor_browser()
-        if not tor_path:
-            launch_btn.set_sensitive(False)
-            self._status_lbl.set_label("Tor Browser not found. Install with: torbrowser-launcher")
-        else:
-            self._status_lbl.set_label(f"Found: {tor_path}")
-
-        # Bookmarks section
-        bm_grp = Adw.PreferencesGroup()
-        bm_grp.set_title("Bookmarks")
-        bm_grp.set_margin_start(12); bm_grp.set_margin_end(12)
-        bm_grp.set_margin_top(12)
-        bm_grp.set_margin_bottom(8)
-
-        add_bm_row = Adw.ActionRow()
-        add_bm_row.set_title("Add bookmark")
-        add_bm_row.set_activatable(True)
-        add_bm_row.connect("activated", self._add_bookmark)
-        add_bm_icon = Gtk.Image.new_from_icon_name("list-add-symbolic")
-        add_bm_row.add_prefix(add_bm_icon)
-        bm_grp.add(add_bm_row)
-
-        self._bm_group = bm_grp
-        self._refresh_bookmarks()
-
-        btn_box.append(launch_btn)
-        btn_box.append(self._status_lbl)
-        launch_page.set_child(btn_box)
-
-        content_box.append(launch_page)
-        content_box.append(bm_grp)
-        content_nav.set_child(content_box)
-
-        split.set_sidebar(sidebar_nav)
-        split.set_content(content_nav)
-        self.set_content(split)
-
-    def _load_bookmarks(self):
+    # ── sessions ──────────────────────────────────────────────────────────────
+    def _build_sessions(self):
+        self.session = WebKit.NetworkSession.get_default()
         try:
-            with open(BOOKMARKS_FILE) as f:
-                return json.load(f)
-        except Exception:
-            return [
-                {"title": "DuckDuckGo .onion", "url": "https://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion"},
-                {"title": "EFF — Surveillance Self-Defense", "url": "https://ssd.eff.org"},
-                {"title": "SecureDrop", "url": "https://secrdrop5wyphb5x.onion"},
-            ]
+            self.session.get_website_data_manager().set_itp_enabled(True)
+        except Exception:  # noqa: BLE001
+            pass
+        self.session.connect("download-started", self._on_download)
 
-    def _save_bookmarks(self):
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        with open(BOOKMARKS_FILE, "w") as f:
-            json.dump(self._bookmarks, f, indent=2)
+    def _get_tor_session(self):
+        if self._tor_session is None:
+            s = WebKit.NetworkSession.new_ephemeral()
+            s.set_proxy_settings(WebKit.NetworkProxyMode.CUSTOM,
+                                 WebKit.NetworkProxySettings.new(f"socks5h://127.0.0.1:{TOR_SOCKS}", None))
+            s.connect("download-started", self._on_download)
+            self._tor_session = s
+        return self._tor_session
 
-    def _refresh_bookmarks(self):
-        for bm in self._bookmarks:
-            row = Adw.ActionRow()
-            row.set_title(bm.get("title", bm["url"]))
-            row.set_subtitle(bm["url"])
-            row.set_activatable(True)
-            url = bm["url"]
-            row.connect("activated", lambda _, u=url: self._open_url(u))
-            self._bm_group.add(row)
+    def _on_download(self, _session, dl):
+        def dest(d, name):
+            folder = Path.home() / "Downloads"
+            folder.mkdir(exist_ok=True)
+            target = folder / (os.path.basename(name) or "download")
+            n = 1
+            while target.exists():
+                target = folder / f"{target.stem}-{n}{target.suffix}"
+                n += 1
+            d.set_destination(str(target))
+            self._say(f"Downloading {target.name}…")
+            return True
+        dl.connect("decide-destination", dest)
+        dl.connect("finished", lambda d: self._say("Download finished"))
 
-    def _add_bookmark(self, *_):
-        dlg = Adw.MessageDialog.new(self)
-        dlg.set_heading("Add bookmark")
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_margin_start(16); box.set_margin_end(16)
-        title_e = Gtk.Entry(); title_e.set_placeholder_text("Title")
-        url_e = Gtk.Entry(); url_e.set_placeholder_text("URL or .onion address")
-        box.append(title_e); box.append(url_e)
-        dlg.set_extra_child(box)
-        dlg.add_response("cancel", "Cancel")
-        dlg.add_response("add", "Add")
-        dlg.set_response_appearance("add", Adw.ResponseAppearance.SUGGESTED)
-        def resp(d, r):
-            if r == "add" and url_e.get_text():
-                self._bookmarks.append({"title": title_e.get_text() or url_e.get_text(), "url": url_e.get_text()})
-                self._save_bookmarks()
-        dlg.connect("response", resp)
-        dlg.present()
+    # ── sidebar ───────────────────────────────────────────────────────────────
+    def _ib(self, glyph, tip, cb):
+        b = Gtk.Button()
+        b.add_css_class("bb-icon")
+        b.set_child(icons.icon(glyph, "#c3c2b7", 16, 1.9))
+        b.set_tooltip_text(tip)
+        b.connect("clicked", lambda *_: cb())
+        return b
 
-    def _open_url(self, url: str):
-        tor = find_tor_browser()
+    def _build_sidebar(self):
+        side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        side.add_css_class("bb-side")
+        side.set_size_request(250, -1)
+
+        top = Gtk.WindowHandle()
+        trow = Gtk.Box(spacing=2)
+        lights = appstyle.traffic_lights()
+        lights.set_margin_start(4)
+        trow.append(lights)
+        trow.append(Gtk.Box(hexpand=True))
+        top.set_child(trow)
+        trow.set_margin_bottom(2)
+        side.append(top)
+
+        nav = Gtk.Box(spacing=2)
+        self.b_back = self._ib("back", "Back (Alt+←)", lambda: self.cur().view.go_back())
+        self.b_fwd = self._ib("chev", "Forward (Alt+→)", lambda: self.cur().view.go_forward())
+        self.b_reload = self._ib("refresh", "Reload (Ctrl+R)", self._reload)
+        for b in (self.b_back, self.b_fwd, self.b_reload):
+            nav.append(b)
+        nav.append(Gtk.Box(hexpand=True))
+        self.b_star = self._ib("check", "Bookmark this page", self._toggle_bookmark)
+        nav.append(self.b_star)
+        nav.append(self._ib("folder", "Bookmarks", self._show_bookmarks))
+        side.append(nav)
+
+        self.url = Gtk.Entry()
+        self.url.add_css_class("bb-url")
+        self.url.set_placeholder_text("Search or enter address")
+        self.url.connect("activate", lambda e: self.go(e.get_text()))
+        side.append(self.url)
+
+        sw = Gtk.ScrolledWindow(vexpand=True)
+        sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.tab_list = Gtk.ListBox()
+        self.tab_list.add_css_class("bb-tabs")
+        self.tab_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.tab_list.connect("row-selected", self._on_row)
+        sw.set_child(self.tab_list)
+        side.append(sw)
+
+        nt = Gtk.Button()
+        nt.add_css_class("bb-newtab")
+        nb = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER)
+        nb.append(icons.icon("plus", "#898781", 14, 2))
+        nb.append(Gtk.Label(label="New tab"))
+        nt.set_child(nb)
+        nt.connect("clicked", lambda *_: self.new_tab(HOME))
+        side.append(nt)
+
+        tb = Gtk.Button()
+        tb.add_css_class("bb-torbtn")
+        tbb = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER)
+        tbb.append(icons.icon("vpn", "#c9a6ff", 14, 2))
+        self.tor_lbl = Gtk.Label(label="New Tor tab")
+        tbb.append(self.tor_lbl)
+        tb.set_child(tbb)
+        tb.connect("clicked", lambda *_: self.new_tab(HOME, tor=True))
+        side.append(tb)
+
+        self.status = Gtk.Label(label="", xalign=0, ellipsize=3)
+        self.status.add_css_class("bb-status")
+        side.append(self.status)
+        return side
+
+    def _say(self, text):
+        self.status.set_text(text)
+
+    # ── tabs ──────────────────────────────────────────────────────────────────
+    def cur(self):
+        row = self.tab_list.get_selected_row()
+        return row._tab if row else self.tabs[0]
+
+    def _make_view(self, tor, related=None):
+        kw = {}
+        if related is not None:
+            kw["related_view"] = related
+        else:
+            kw["network_session"] = self._get_tor_session() if tor else self.session
+        v = WebKit.WebView(**kw)
+        v.set_hexpand(True)
+        v.set_vexpand(True)
+        v.set_background_color(Gdk.RGBA(0.043, 0.043, 0.043, 1))
+        s = v.get_settings()
+        for prop, val in (("enable-developer-extras", False), ("enable-back-forward-navigation-gestures", True),
+                          ("enable-webrtc", False if tor else True),
+                          ("enable-media-stream", False if tor else True),
+                          ("hardware-acceleration-policy", WebKit.HardwareAccelerationPolicy.NEVER)):
+            try:
+                s.set_property(prop, val)
+            except Exception:  # noqa: BLE001
+                pass
+        return v
+
+    def new_tab(self, url=HOME, tor=False, related=None, select=True):
+        view = self._make_view(tor, related)
+        tab = Tab(view, tor)
+        self.tabs.append(tab)
+        self.stack.add_child(view)
+
+        row = Gtk.ListBoxRow()
+        row.add_css_class("bb-tab")
         if tor:
-            subprocess.Popen([tor, url])
-        else:
-            subprocess.Popen(["xdg-open", url])
+            row.add_css_class("bb-tab-tor")
+        row._tab = tab
+        box = Gtk.Box(spacing=8)
+        for m in ("start", "end"):
+            getattr(box, f"set_margin_{m}")(8)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        tab.fav = Gtk.Image()
+        tab.fav.set_pixel_size(16)
+        tab.fav.set_from_paintable(icons.icon("vpn" if tor else "globe", "#c9a6ff" if tor else "#898781", 16, 1.8).get_paintable())
+        box.append(tab.fav)
+        tab.title_lbl = Gtk.Label(label="New tab", xalign=0, hexpand=True, ellipsize=3, max_width_chars=22)
+        box.append(tab.title_lbl)
+        close = self._ib("x", "Close tab (Ctrl+W)", lambda t=tab: self.close_tab(t))
+        close.set_size_request(24, 24)
+        box.append(close)
+        row.set_child(box)
+        tab.row = row
+        self.tab_list.append(row)
 
-    def _launch_tor(self, *_):
-        tor = find_tor_browser()
-        if not tor:
+        view.connect("notify::title", lambda v, _p, t=tab: self._on_title(t))
+        view.connect("notify::uri", lambda v, _p, t=tab: self._on_uri(t))
+        view.connect("notify::favicon", lambda v, _p, t=tab: self._on_favicon(t))
+        view.connect("notify::estimated-load-progress", lambda v, _p, t=tab: self._on_progress(t))
+        view.connect("notify::is-loading", lambda v, _p, t=tab: self._on_progress(t))
+        view.connect("decide-policy", self._on_policy, tab)
+        view.connect("create", self._on_create, tab)
+        view.connect("close", lambda v, t=tab: self.close_tab(t))
+        view.connect("web-process-terminated", lambda v, reason, t=tab: self._on_crash(t))
+        view.connect("load-failed", self._on_load_failed, tab)
+
+        if select:
+            self.tab_list.select_row(row)
+        if related is None:
+            self.load(tab, url)
+        return tab
+
+    def load(self, tab, url):
+        if tab.tor and not self.tor.ready:
+            tab.pending = url
+            self.tor.start()
+            self._show_tor_wait(tab)
             return
-        try:
-            self._tor_proc = subprocess.Popen([tor])
-            self._status_lbl.set_label("Tor Browser launched")
-            self._circuit_panel.refresh()
-        except Exception as e:
-            self._status_lbl.set_label(f"Launch failed: {e}")
+        tab.pending = None
+        if url == HOME:
+            tab.view.load_html(start_page(self.bookmarks, tab.tor), HOME)
+        else:
+            tab.view.load_uri(url)
+
+    def _show_tor_wait(self, tab):
+        msg = self.tor.failed or f"Connecting to Tor… {self.tor.progress}%"
+        tab.view.load_html(
+            f"<body style='background:#0b0b0b;color:#c9a6ff;font:16px system-ui;display:flex;"
+            f"align-items:center;justify-content:center;height:100vh;margin:0'>"
+            f"<div style='text-align:center'><h2>Tor</h2><p style='color:#898781'>{msg}</p></div></body>", HOME)
+
+    def close_tab(self, tab):
+        if tab not in self.tabs:
+            return
+        if len(self.tabs) == 1:
+            self.new_tab(HOME)
+        idx = self.tabs.index(tab)
+        self.tabs.remove(tab)
+        self.tab_list.remove(tab.row)
+        self.stack.remove(tab.view)
+        if self.tab_list.get_selected_row() is None:
+            self.tab_list.select_row(self.tabs[min(idx, len(self.tabs) - 1)].row)
+
+    def go(self, text):
+        url = normalise(text)
+        tab = self.cur()
+        if is_onion(url) and not tab.tor:
+            self.new_tab(url, tor=True)      # onion addresses always go through Tor
+            return
+        self.load(tab, url)
+        tab.view.grab_focus()
+
+    def _reload(self):
+        tab = self.cur()
+        if tab.view.get_property("is-loading"):
+            tab.view.stop_loading()
+        else:
+            tab.view.reload()
+
+    # ── events ────────────────────────────────────────────────────────────────
+    def _on_row(self, _lb, row):
+        if row is None:
+            return
+        tab = row._tab
+        self.stack.set_visible_child(tab.view)
+        self._sync_chrome(tab)
+
+    def _sync_chrome(self, tab):
+        uri = tab.view.get_uri() or ""
+        self.url.set_text("" if uri.startswith("bastille:") else uri)
+        self.b_back.set_sensitive(tab.view.can_go_back())
+        self.b_fwd.set_sensitive(tab.view.can_go_forward())
+        self.set_title((tab.view.get_title() or "Browser") + (" — Tor" if tab.tor else ""))
+        starred = any(b["url"] == uri for b in self.bookmarks)
+        self.b_star.set_tooltip_text("Remove bookmark" if starred else "Bookmark this page")
+        self.b_star.set_opacity(1.0 if starred else 0.55)
+
+    def _on_title(self, tab):
+        t = tab.view.get_title() or tab.view.get_uri() or "New tab"
+        tab.title_lbl.set_text("New tab" if t.startswith("bastille:") else t)
+        if tab.row.is_selected():
+            self._sync_chrome(tab)
+
+    def _on_uri(self, tab):
+        if tab.row.is_selected():
+            self._sync_chrome(tab)
+
+    def _on_favicon(self, tab):
+        tex = tab.view.get_favicon()
+        if tex is not None:
+            tab.fav.set_from_paintable(tex)
+
+    def _on_progress(self, tab):
+        if not tab.row.is_selected():
+            return
+        loading = tab.view.get_property("is-loading")
+        self.prog.set_visible(loading)
+        self.prog.set_fraction(tab.view.get_estimated_load_progress())
+        self.b_reload.set_tooltip_text("Stop" if loading else "Reload (Ctrl+R)")
+        self.b_back.set_sensitive(tab.view.can_go_back())
+        self.b_fwd.set_sensitive(tab.view.can_go_forward())
+
+    def _on_policy(self, view, decision, dtype, tab):
+        if dtype not in (WebKit.PolicyDecisionType.NAVIGATION_ACTION,
+                         WebKit.PolicyDecisionType.NEW_WINDOW_ACTION):
+            return False
+        uri = decision.get_navigation_action().get_request().get_uri() or ""
+        if is_onion(uri) and not tab.tor:
+            decision.ignore()                 # never leak an .onion lookup outside Tor
+            GLib.idle_add(lambda: (self.new_tab(uri, tor=True), False)[1])
+            return True
+        return False
+
+    def _on_create(self, view, action, tab):
+        uri = action.get_request().get_uri() or ""
+        if is_onion(uri) and not tab.tor:
+            self.new_tab(uri, tor=True)
+            return None
+        new = self.new_tab(related=view, tor=tab.tor)
+        return new.view
+
+    def _on_crash(self, tab):
+        tab.view.load_html(
+            "<body style='background:#0b0b0b;color:#f0efec;font:16px system-ui;display:flex;align-items:center;"
+            "justify-content:center;height:100vh;margin:0'><div style='text-align:center'><h2>This page crashed</h2>"
+            "<p style='color:#898781'>If every page does this, the web sandbox could not start.</p></div></body>", HOME)
+
+    def _on_load_failed(self, view, _ev, uri, err, tab):
+        if tab.tor and not self.tor.ready:
+            return False
+        return False
+
+    def _tor_progress(self):
+        if self.tor.failed:
+            self.tor_lbl.set_text("Tor unavailable")
+            self._say(self.tor.failed)
+        elif self.tor.ready:
+            self.tor_lbl.set_text("New Tor tab")
+            self._say("Tor connected")
+        else:
+            self.tor_lbl.set_text(f"New Tor tab · {self.tor.progress}%")
+        for t in self.tabs:
+            if t.tor and t.pending is not None:
+                if self.tor.ready:
+                    self.load(t, t.pending)
+                else:
+                    self._show_tor_wait(t)
+
+    # ── bookmarks ─────────────────────────────────────────────────────────────
+    def _toggle_bookmark(self):
+        tab = self.cur()
+        uri = tab.view.get_uri() or ""
+        if not uri or uri.startswith("bastille:"):
+            return
+        found = [b for b in self.bookmarks if b["url"] == uri]
+        if found:
+            self.bookmarks.remove(found[0])
+        else:
+            self.bookmarks.append({"title": tab.view.get_title() or uri, "url": uri})
+        save_bookmarks(self.bookmarks)
+        self._sync_chrome(tab)
+
+    def _show_bookmarks(self):
+        pop = Gtk.Popover()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        box.set_size_request(300, -1)
+        for b in self.bookmarks:
+            btn = Gtk.Button(label=(b.get("title") or b["url"])[:44], halign=Gtk.Align.FILL)
+            btn.add_css_class("flat")
+            btn.get_child().set_xalign(0)
+            btn.connect("clicked", lambda _b, u=b["url"]: (pop.popdown(), self.go(u)))
+            box.append(btn)
+        if not self.bookmarks:
+            box.append(Gtk.Label(label="No bookmarks yet", margin_top=8, margin_bottom=8))
+        circ = Gtk.Button(label="Tor: new identity")
+        circ.add_css_class("flat")
+        circ.connect("clicked", lambda *_: (pop.popdown(), self._new_identity()))
+        box.append(Gtk.Separator())
+        box.append(circ)
+        pop.set_child(box)
+        pop.set_parent(self.b_star)
+        pop.connect("closed", lambda p: GLib.idle_add(p.unparent))
+        pop.popup()
+
+    def _new_identity(self):
+        def done(ok):
+            self._say("Tor: new identity — new circuits for new connections" if ok
+                      else "Tor is not running yet — open a Tor tab first")
+        bd.bg(self.tor.new_identity, done)
+
+    # ── keys / close ──────────────────────────────────────────────────────────
+    def _on_key(self, _c, keyval, _code, state):
+        ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
+        alt = bool(state & Gdk.ModifierType.ALT_MASK)
+        shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
+        k = Gdk.keyval_name(keyval) or ""
+        if ctrl and k.lower() == "t":
+            self.new_tab(HOME, tor=shift)
+        elif ctrl and k.lower() == "w":
+            self.close_tab(self.cur())
+        elif ctrl and k.lower() == "l":
+            self.url.grab_focus()
+            self.url.select_region(0, -1)
+        elif (ctrl and k.lower() == "r") or k == "F5":
+            self._reload()
+        elif ctrl and k.lower() == "d":
+            self._toggle_bookmark()
+        elif alt and k == "Left":
+            self.cur().view.go_back()
+        elif alt and k == "Right":
+            self.cur().view.go_forward()
+        elif ctrl and k == "Tab":
+            i = (self.tabs.index(self.cur()) + 1) % len(self.tabs)
+            self.tab_list.select_row(self.tabs[i].row)
+        else:
+            return False
+        return True
+
+    def _on_close(self, *_):
+        self.tor.stop()
+        return False
 
 
 class BrowserApp(Adw.Application):
     def __init__(self):
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
-        self.connect("activate", lambda a: BrowserWindow(a).present())
+        self.connect("activate", self._on_activate)
+
+    def _on_activate(self, app):
+        Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.FORCE_DARK)
+        appstyle.install()
+        bd.install()
+        css = Gtk.CssProvider()
+        css.load_from_string(CSS) if hasattr(css, "load_from_string") else css.load_from_data(CSS.encode())
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
+        (app.get_active_window() or BrowserWindow(app)).present()
+
 
 if __name__ == "__main__":
-    Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.FORCE_DARK)
     sys.exit(BrowserApp().run(sys.argv))

@@ -1,0 +1,145 @@
+{
+ "apps": {
+  "browser": {
+   "description": "Tor+Zen hybrid privacy browser",
+   "files": {
+    "icon.svg": "f556221c8f79815faa89db76503e151c988a194a47c93e8788b01bf788096f91",
+    "main.py": "54fbc35ac93c78ae7a7a6956b47d0fa7661f09572289204ff505a646c79eeabc"
+   },
+   "id": "com.bastille.browser",
+   "name": "Browser",
+   "version": "0.1.0"
+  },
+  "calendar": {
+   "description": "Offline calendar with event detection",
+   "files": {
+    "icon.svg": "4be7186e42bd761000488256d0d102e76b07440eade380a08412cbee5653e763",
+    "main.py": "db9bfb8004bcdaa99b15a9ce765d1f9372cc95c52c66ae75bdcb91b59f948504"
+   },
+   "id": "com.bastille.calendar",
+   "name": "Calendar",
+   "version": "0.1.0"
+  },
+  "documents": {
+   "description": "LibreOffice Writer launcher with age decrypt",
+   "files": {
+    "icon.svg": "ce44cfd5f3488b42ea8de8e27314e0187fab3ba8bc961816a01be2ea0ddebe99",
+    "main.py": "00b1500b4537d23b6d1bc32c03851ea68c01e9c722cd246677d408ba9840f843"
+   },
+   "id": "com.bastille.documents",
+   "name": "Documents",
+   "version": "0.1.0"
+  },
+  "files": {
+   "description": "File manager with age/GPG encryption",
+   "files": {
+    "icon.svg": "853e91a17694325b6c1657e63d734ec94fd3186954a1fd0c7c9a119b00fd53f0",
+    "main.py": "ee8f009167dd1a848ae54e9edc55d60e7b18dad6dd7de4c1a66139ee969bf328"
+   },
+   "id": "com.bastille.files",
+   "name": "Files",
+   "version": "0.1.0"
+  },
+  "mail": {
+   "description": "Encrypted mail with Guerrilla Mail and PGP",
+   "files": {
+    "icon.svg": "c2427eeeb8e9bdaea13832cd419f4d22ac5608838e85d41dbe889dc2f8f111f4",
+    "main.py": "4a1e4e78d8fb295a6f2aa407c014193716cafaf3300219f2c8dc67394bcdd1a2"
+   },
+   "id": "com.bastille.mail",
+   "name": "Mail",
+   "version": "0.1.0"
+  },
+  "maps": {
+   "description": "Offline maps viewer",
+   "files": {
+    "icon.svg": "2be08f076aaf191b535ac8644d823e2ace3bcbef4a4c32faa1d65a88692eb72c",
+    "main.py": "c27e75801f2e07612daf74145d7009e0bc99e7761c63f1a26b7f11797f0923b4"
+   },
+   "id": "com.bastille.maps",
+   "name": "Maps",
+   "version": "0.1.0"
+  },
+  "messages": {
+   "description": "Signal / Session / GPG messaging hub",
+   "files": {
+    "icon.svg": "4a953aedfad935859179e1a2b3be5629e84c0fb35213122621d42358ec8f6e55",
+    "main.py": "48478d3680ef30ce265db1d0c35d25fb7ac65536d94572828a78dc1abb9f49c8"
+   },
+   "id": "com.bastille.messages",
+   "name": "Messages",
+   "version": "0.1.0"
+  },
+  "music": {
+   "description": "Local music player",
+   "files": {
+    "icon.svg": "c76ed7130119ee3ee067a21eae85684f91fcf3f942e1ea708a5fe26ee523d715",
+    "main.py": "90ed82310e855c9c096db3acc8c0e628347b40c331196a7e248f413c721db8cb"
+   },
+   "id": "com.bastille.music",
+   "name": "Music",
+   "version": "0.1.0"
+  },
+  "notes": {
+   "description": "Encrypted local notes with PIN lock and markdown",
+   "files": {
+    "icon.svg": "f78ff871e3367e64be2e61476f7eaf5002cf5a23c657f8a89181cd3d04af090d",
+    "main.py": "1e9d81932dc4e070e4585f67a7b9a51498751ec61ae09a52219999cd17b7a5a5"
+   },
+   "id": "com.bastille.notes",
+   "name": "Notes",
+   "version": "0.1.0"
+  },
+  "presentations": {
+   "description": "LibreOffice Impress launcher",
+   "files": {
+    "icon.svg": "a8d88512bf72bfcacd03110cb476835b708e02695508e3d06c4063978a046a46",
+    "main.py": "9a777394ea64b09ff73fafe5fcbe5b5e27e50c666efa4eb67568ad5719708e25"
+   },
+   "id": "com.bastille.presentations",
+   "name": "Presentations",
+   "version": "0.1.0"
+  },
+  "settings": {
+   "description": "System hardening configuration panel",
+   "files": {
+    "icon.svg": "d93c77479fa5db1a8aa01f5e6cd338f857997aac7fc49c53dbaea95b250c8410",
+    "main.py": "9513134ca6577ca9a86797ab407fdf56116872eb63e1c2eead662e5bb9a5edc1"
+   },
+   "id": "com.bastille.settings",
+   "name": "Settings",
+   "version": "0.1.0"
+  },
+  "sheets": {
+   "description": "LibreOffice Calc launcher",
+   "files": {
+    "icon.svg": "d5f670c21bc842fd3bb4d1263636dca452ad428f4b6ae51b570ed8b04eab46ce",
+    "main.py": "1e4eab233b09463217ba2775c67249e05c296905254fbeeb782c1352d3c31f66"
+   },
+   "id": "com.bastille.sheets",
+   "name": "Sheets",
+   "version": "0.1.0"
+  },
+  "terminal": {
+   "description": "Multi-tab terminal emulator",
+   "files": {
+    "icon.svg": "ca8d0eb2498b3b30f71198ead5abbff8f68ec051f831211102a02db65912222f",
+    "main.py": "1b10cea78c6de19cfc5a3c2eb6a0ec4a031869378296129eb2b7710b0d292e15"
+   },
+   "id": "com.bastille.terminal",
+   "name": "Terminal",
+   "version": "0.1.0"
+  },
+  "weather": {
+   "description": "Privacy-first weather via wttr.in",
+   "files": {
+    "icon.svg": "e4d73fb20b77fa43c9ce15e38118cf6599b976abf45b6f97e7f3a500e275df6f",
+    "main.py": "3dbc0b55cb7b0a6c6156173411f8711f0c733449f6a7e7b3a7cd03a3634cd03a"
+   },
+   "id": "com.bastille.weather",
+   "name": "Weather",
+   "version": "0.1.0"
+  }
+ },
+ "version": 1
+}
